@@ -5,7 +5,7 @@ import { Editor } from '@toast-ui/react-editor';
 import '@toast-ui/editor/dist/toastui-editor.css';
 
 export default function MarkdownFileEditor() {
-  const editorRef = useRef<any>();
+  const editorRef = useRef<Editor>(null);
   const [error, setError] = useState("");
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
