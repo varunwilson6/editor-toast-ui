@@ -1,9 +1,10 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Editor } from '@toast-ui/react-editor';
 import '@toast-ui/editor/dist/toastui-editor.css';
 import colorSyntax from '@toast-ui/editor-plugin-color-syntax';
 import 'tui-color-picker/dist/tui-color-picker.css';
 import '@toast-ui/editor-plugin-color-syntax/dist/toastui-editor-plugin-color-syntax.css';
+import { useDocumentApi } from '../../services/documentApi';
 
 interface DiffBlock {
   type: 'diff';
@@ -49,97 +50,18 @@ export default function MarkdownFileEditor() {
   const editorRef = useRef<Editor>(null);
   const [error, setError] = useState("");
   const [markdownOutput, setMarkdownOutput] = useState("");
-
-  const fetchDocumentFromAPI = async (): Promise<DocumentResponse> => {
-    return {
-      id: "aba12b54-0064-4ae2-ab46-32469125cdd4",
-      title: "Demo title",
-      // content: "Content totally changed by user\nNew content added.",
-      content: "",
-      version: 3,
-      versionHash: "2810fe40aacdfe86ff4eeaf356cf2725ecacd1f0e96d90a8b2a2e259fc9efb2c",
-      checkedOutBy: ["user1111", "fe_user_1"],
-      lastModifiedBy: "fe_dev_1",
-      createdAt: "2025-04-10T06:19:38.210Z",
-      updatedAt: "2025-04-10T11:43:29.987Z",
-      changeHistory: [
-        {
-          action: "CREATE",
-          userId: "user1111",
-          content: "Some random content",
-          diffBlocks: []
-        },
-        {
-          action: "CHECKOUT",
-          userId: "user1111",
-          content: "Some random content",
-          diffBlocks: []
-        },
-        {
-          action: "COMMIT",
-          userId: "user2222",
-          content: "Content totally changed by user",
-          diffBlocks: [
-            {
-              type: "diff",
-              content: "Some random content",
-              endLine: 0,
-              endOffset: 19,
-              operation: "delete",
-              startLine: 0,
-              startOffset: 0
-            },
-            {
-              type: "diff",
-              content: "Content totally changed by user",
-              endLine: 0,
-              endOffset: 50,
-              operation: "insert",
-              startLine: 0,
-              startOffset: 19
-            }
-          ]
-        },
-        {
-          action: "CHECKOUT",
-          userId: "fe_dev_1",
-          content: "Content totally changed by user",
-          diffBlocks: []
-        },
-        {
-          action: "CHECKOUT",
-          userId: "fe_user_1",
-          content: "Content totally changed by user",
-          diffBlocks: []
-        },
-        {
-          action: "UPDATE",
-          userId: "fe_dev_1",
-          content: "Content totally changed by user\nNew content added.",
-          diffBlocks: [
-            {
-              type: "diff",
-              content: "Content totally changed by user",
-              endLine: 0,
-              endOffset: 31,
-              operation: "equal",
-              startLine: 0,
-              startOffset: 0
-            },
-            {
-              type: "diff",
-              content: "\nNew content added.",
-              endLine: 1,
-              endOffset: 18,
-              operation: "insert",
-              startLine: 0,
-              startOffset: 31
-            }
-          ]
-        }
-      ]
-    };
-  };
+  const [documentId, setDocumentId] = useState("");
+  const [userId, setUserId] = useState("");
+  const [title, setTitle] = useState("");
+  const { 
+    data, 
+    error: apiError, 
+    loading, 
+    fetchDocument, 
+    createDocument, 
+    checkoutDocument, 
+    commitDocument 
+  } = useDocumentApi();
 
   const applyDiffBlocks = (content: string, history: ChangeCommit[]): string => {
     const diffs = history
@@ -188,13 +110,71 @@ export default function MarkdownFileEditor() {
     return result;
   };
 
-  const loadEditorContent = async () => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!documentId.trim()) {
+      return;
+    }
+
     try {
-      const document = await fetchDocumentFromAPI();
-      const finalContentWithDiffs = applyDiffBlocks(document.content, document.changeHistory);
+      const document = await fetchDocument(documentId);
+      const finalContentWithDiffs = document.content;
       editorRef.current?.getInstance().setMarkdown(finalContentWithDiffs);
     } catch (err) {
-      setError("Failed to load document");
+      // Error is already handled by the hook
+    }
+  };
+
+  const handleCreateDocument = async () => {
+    if (!title.trim() || !userId.trim()) {
+      return;
+    }
+
+    try {
+      const markdown = editorRef.current?.getInstance().getMarkdown() || "";
+      const stripedMarkdown = stripHtmlFromMarkdown(markdown);
+      const document = await createDocument({
+        title,
+        content: stripedMarkdown,
+        userId
+      });
+      setDocumentId(document.id);
+    } catch (err) {
+      // Error is already handled by the hook
+    }
+  };
+
+  const handleCheckout = async () => {
+    if (!documentId.trim() || !userId.trim()) {
+      return;
+    }
+
+    try {
+      await checkoutDocument({
+        documentId,
+        userId
+      });
+    } catch (err) {
+      // Error is already handled by the hook
+    }
+  };
+
+  const handleCommit = async () => {
+    if (!documentId.trim() || !userId.trim() || !data?.versionHash) {
+      return;
+    }
+
+    try {
+      const markdown = editorRef.current?.getInstance().getMarkdown() || "";
+      const stripedMarkdown = stripHtmlFromMarkdown(markdown);
+      await commitDocument({
+        documentId,
+        userId,
+        content: stripedMarkdown,
+        checkoutVersionHash: data.versionHash
+      });
+    } catch (err) {
+      // Error is already handled by the hook
     }
   };
 
@@ -204,19 +184,76 @@ export default function MarkdownFileEditor() {
 
   const handleExportMarkdown = () => {
     const markdown = editorRef.current?.getInstance().getMarkdown();
-    console.log('what we got >>>', markdown);
-    setMarkdownOutput(stripHtmlFromMarkdown(markdown) || '');
+    const stripedMarkdown = stripHtmlFromMarkdown(markdown || '');
+    console.log('what we got >>>', { markdown, stripedMarkdown });
+    setMarkdownOutput(stripedMarkdown);
   };
-
-  useEffect(() => {
-    loadEditorContent();
-  }, []);
 
   return (
     <div className="p-6 max-w-4xl mx-auto bg-white shadow rounded-xl space-y-4">
       <h2 className="text-2xl font-bold">📄 Markdown File Editor</h2>
 
-      {error && <p className="text-red-500 mb-4">{error}</p>}
+      <div className="space-y-4">
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={userId}
+            onChange={(e) => setUserId(e.target.value)}
+            placeholder="Enter User ID"
+            className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Enter Document Title"
+            className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex gap-2">
+          <input
+            type="text"
+            value={documentId}
+            onChange={(e) => setDocumentId(e.target.value)}
+            placeholder="Enter document ID"
+            className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <button
+            type="submit"
+            disabled={loading}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-300"
+          >
+            {loading ? "Loading..." : "Load Document"}
+          </button>
+        </form>
+
+        <div className="flex gap-2">
+          <button
+            onClick={handleCreateDocument}
+            disabled={loading || !title.trim() || !userId.trim()}
+            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-green-300"
+          >
+            Create Document
+          </button>
+          <button
+            onClick={handleCheckout}
+            disabled={loading || !documentId.trim() || !userId.trim()}
+            className="flex-1 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:bg-yellow-300"
+          >
+            Checkout Document
+          </button>
+          <button
+            onClick={handleCommit}
+            disabled={loading || !documentId.trim() || !userId.trim() || !data?.versionHash}
+            className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-purple-300"
+          >
+            Commit Changes
+          </button>
+        </div>
+      </div>
+
+      {apiError && <p className="text-red-500 mb-4">{apiError}</p>}
 
       <Editor
         ref={editorRef}
@@ -225,7 +262,7 @@ export default function MarkdownFileEditor() {
         initialEditType="wysiwyg"
         useCommandShortcut={true}
         hideModeSwitch={true}
-        initialValue="Loading document..."
+        initialValue="Enter a document ID and click 'Load Document' to start editing..."
         toolbarItems={[
           ['heading', 'bold', 'italic', 'strike'],
           ['hr', 'quote'],
